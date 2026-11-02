@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard | Small Shop Inventory{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-4">
+
+    <!-- AWS Architecture & Cloud Status Header Banner -->
+    <div class="aws-architecture-banner d-flex flex-wrap align-items-center justify-content-between gap-3 shadow-sm">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="aws-tag"><i class="bi bi-cloud-arrow-up-fill me-1"></i>AWS CLOUD NATIVE</span>
+                <span class="text-white-50 small">&bull; EC2 &bull; RDS MySQL &bull; AWS SNS</span>
+            </div>
+            <h5 class="fw-bold mb-0 text-white">Store Overview & Inventory Telemetry</h5>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{{ url_for('routes.sales') }}" class="btn btn-warning btn-sm fw-bold px-3 shadow-sm" id="btn_quick_new_sale">
+                <i class="bi bi-cart-plus me-1"></i> Record New Sale
+            </a>
+            <a href="{{ url_for('routes.products') }}" class="btn btn-light btn-sm fw-bold px-3 shadow-sm" id="btn_quick_add_product">
+                <i class="bi bi-plus-circle me-1"></i> Manage Products
+            </a>
+        </div>
+    </div>
+
+    <!-- Top KPI Metrics Row -->
+    <div class="row g-3 mb-4">
+        <!-- 1. Total Products -->
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="metric-card primary">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="metric-label">Total Products</div>
+                        <div class="metric-value" id="kpi_total_products">{{ total_products|default(0) }}</div>
+                    </div>
+                    <div class="metric-icon-wrap">
+                        <i class="bi bi-box-seam"></i>
+                    </div>
+                </div>
+                <div class="text-muted small mt-2">
+                    <span class="text-primary fw-semibold"><i class="bi bi-tags"></i> Active SKUs</span> in catalog
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Total Stock Units -->
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="metric-card success">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="metric-label">Total Stock Units</div>
+                        <div class="metric-value" id="kpi_total_units">{{ total_units|default(0) }}</div>
+                    </div>
+                    <div class="metric-icon-wrap">
+                        <i class="bi bi-stack"></i>
+                    </div>
+                </div>
+                <div class="text-muted small mt-2">
+                    <span class="text-success fw-semibold"><i class="bi bi-check-circle"></i> On hand</span> physical units
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Low Stock Alerts -->
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="metric-card {% if low_stock_count|default(0) > 0 %}danger{% else %}warning{% endif %}">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="metric-label">Low Stock Alerts</div>
+                        <div class="metric-value {% if low_stock_count|default(0) > 0 %}text-danger pulse-badge{% endif %}" id="kpi_low_stock">
+                            {{ low_stock_count|default(0) }}
+                        </div>
+                    </div>
+                    <div class="metric-icon-wrap">
+                        <i class="bi bi-bell-fill"></i>
+                    </div>
+                </div>
+                <div class="text-muted small mt-2">
+                    {% if low_stock_count|default(0) > 0 %}
+                        <span class="text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill"></i> Requires Reorder</span>
+                    {% else %}
+                        <span class="text-success fw-semibold"><i class="bi bi-shield-check"></i> Stock levels healthy</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. Today's Revenue -->
+        <div class="col-12 col-sm-6 col-xl-3">
+            <div class="metric-card warning">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="metric-label">Today's Sales</div>
+                        <div class="metric-value" id="kpi_today_revenue">${{ "%.2f"|format(today_revenue|default(0.00)) }}</div>
+                    </div>
+                    <div class="metric-icon-wrap">
+                        <i class="bi bi-cash-stack"></i>
+                    </div>
+                </div>
+                <div class="text-muted small mt-2">
+                    <span class="text-warning fw-semibold"><i class="bi bi-receipt"></i> {{ today_sales_count|default(0) }} orders</span> processed today
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Low-Stock Alerts Section -->
+    {% if low_stock_items %}
+    <div class="card-modern border-danger-subtle mb-4">
+        <div class="card-header-clean bg-danger-subtle text-danger d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-exclamation-octagon-fill fs-5"></i>
+                <span class="fw-bold">Critical Low-Stock Warning (AWS SNS Notification Active)</span>
+            </div>
+            <span class="badge bg-danger rounded-pill">{{ low_stock_items|length }} Products Below Threshold</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-modern align-middle mb-0" id="low_stock_table">
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>Product Name</th>
+                        <th>Category</th>
+                        <th>Current Quantity</th>
+                        <th>Minimum Threshold</th>
+                        <th>Shortage</th>
+                        <th class="text-end">Quick Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in low_stock_items %}
+                    <tr>
+                        <td class="fw-bold text-secondary">{{ item.sku }}</td>
+                        <td class="fw-semibold text-dark">{{ item.name }}</td>
+                        <td><span class="badge bg-light text-dark border">{{ item.category }}</span></td>
+                        <td>
+                            <span class="badge {% if item.quantity == 0 %}badge-out-of-stock{% else %}badge-low-stock{% endif %}">
+                                <i class="bi {% if item.quantity == 0 %}bi-x-circle-fill{% else %}bi-exclamation-circle-fill{% endif %}"></i>
+                                {{ item.quantity }} units left
+                            </span>
+                        </td>
+                        <td class="text-secondary fw-semibold">{{ item.min_stock_level }} units</td>
+                        <td class="text-danger fw-bold">
+                            {% if item.min_stock_level > item.quantity %}
+                                -{{ item.min_stock_level - item.quantity }} units
+                            {% else %}
+                                At minimum
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#restockModal"
+                                data-id="{{ item.id }}"
+                                data-name="{{ item.name }}"
+                                data-current-stock="{{ item.quantity }}">
+                                <i class="bi bi-box-arrow-in-down me-1"></i> Restock
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Recent Sales Table & Quick Overview -->
+    <div class="row g-4">
+        <div class="col-12">
+            <div class="card-modern">
+                <div class="card-header-clean">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-clock-history text-primary"></i>
+                        <span>Recent Sales Transactions</span>
+                    </div>
+                    <a href="{{ url_for('routes.sales') }}" class="btn btn-sm btn-outline-secondary">
+                        View All Sales <i class="bi bi-arrow-right"></i>
+                    </a>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-modern mb-0">
+                        <thead>
+                            <tr>
+                                <th>Sale ID</th>
+                                <th>Date & Time</th>
+                                <th>Product</th>
+                                <th>Quantity Sold</th>
+                                <th>Unit Price</th>
+                                <th>Total Price</th>
+                                <th>Cashier</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if recent_sales %}
+                                {% for sale in recent_sales %}
+                                <tr>
+                                    <td class="fw-bold text-secondary">#{{ sale.id }}</td>
+                                    <td class="small text-muted">{{ sale.sale_date.strftime('%Y-%m-%d %H:%M') if sale.sale_date else 'Just now' }}</td>
+                                    <td class="fw-semibold text-dark">{{ sale.product_name }}</td>
+                                    <td><span class="badge bg-secondary-subtle text-dark border">{{ sale.quantity_sold }} pcs</span></td>
+                                    <td>${{ "%.2f"|format(sale.unit_price) }}</td>
+                                    <td class="fw-bold text-success">${{ "%.2f"|format(sale.total_price) }}</td>
+                                    <td class="small text-secondary"><i class="bi bi-person me-1"></i>{{ sale.cashier_name|default('Admin') }}</td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-muted">
+                                        <i class="bi bi-inbox fs-3 d-block mb-1"></i>
+                                        No sales recorded yet. Click <strong>Record New Sale</strong> to get started!
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Include Shared Restock Modal -->
+<div class="modal fade" id="restockModal" tabindex="-1" aria-labelledby="restockModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content card-modern border-0">
+            <div class="modal-header border-bottom">
+                <h5 class="modal-title fw-bold" id="restockModalLabel"><i class="bi bi-box-arrow-in-down text-primary me-2"></i>Restock Product</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="restockForm" method="POST" action="">
+                <div class="modal-body">
+                    <input type="hidden" id="restock_product_id" name="product_id">
+                    <div class="mb-3">
+                        <label class="form-label text-muted small fw-semibold">Product</label>
+                        <h6 id="restock_product_name" class="fw-bold text-dark">-</h6>
+                    </div>
+                    <div class="mb-3">
+                        <span class="text-muted small">Current Stock Level:</span>
+                        <span id="restock_current_qty" class="fw-bold text-primary ms-1">0</span> units
+                    </div>
+                    <div class="mb-3">
+                        <label for="restock_add_qty" class="form-label fw-semibold small">Quantity to Add *</label>
+                        <input type="number" class="form-control" id="restock_add_qty" name="quantity_to_add" min="1" placeholder="e.g. 50" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="restock_notes" class="form-label fw-semibold small">Supplier / Restock Notes (Optional)</label>
+                        <input type="text" class="form-control" id="restock_notes" name="notes" placeholder="e.g. Shipment received from Supplier XYZ">
+                    </div>
+                </div>
+                <div class="modal-footer border-top">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary-custom"><i class="bi bi-check-lg"></i> Confirm Restock</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

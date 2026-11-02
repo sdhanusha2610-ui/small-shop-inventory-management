@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Sign In | Small Shop Inventory{% endblock %}
+
+{% block content %}
+<div class="container auth-wrapper">
+    <div class="auth-card">
+        <div class="text-center mb-4">
+            <div class="d-inline-flex align-items-center justify-content-center bg-primary-subtle text-primary p-3 rounded-circle mb-3 shadow-sm">
+                <i class="bi bi-shield-lock-fill fs-2"></i>
+            </div>
+            <h3 class="fw-bold text-dark mb-1">Welcome Back</h3>
+            <p class="text-muted small">Sign in to manage your shop's inventory & sales</p>
+        </div>
+
+        <form method="POST" action="{{ url_for('routes.login') }}" id="login_form">
+            <div class="mb-3">
+                <label for="username" class="form-label fw-semibold small text-secondary">Username</label>
+                <div class="input-group">
+                    <span class="input-group-text bg-light border-end-0 text-muted"><i class="bi bi-person"></i></span>
+                    <input type="text" class="form-control border-start-0" id="username" name="username" placeholder="Enter username" required autofocus autocomplete="username">
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center">
+                    <label for="password" class="form-label fw-semibold small text-secondary">Password</label>
+                </div>
+                <div class="input-group">
+                    <span class="input-group-text bg-light border-end-0 text-muted"><i class="bi bi-key"></i></span>
+                    <input type="password" class="form-control border-start-0" id="password" name="password" placeholder="Enter password" required autocomplete="current-password">
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary-custom w-100 justify-content-center py-2 mb-3" id="btn_submit_login">
+                <i class="bi bi-box-arrow-in-right"></i> Sign In to Dashboard
+            </button>
+        </form>
+
+        <div class="demo-account-box mt-3 text-secondary">
+            <div class="d-flex align-items-center gap-2 mb-1 text-primary fw-bold">
+                <i class="bi bi-info-circle-fill"></i> Demo Credentials
+            </div>
+            <div class="d-flex justify-content-between mt-1">
+                <span>Username: <strong class="text-dark">admin</strong></span>
+                <span>Password: <strong class="text-dark">admin123</strong></span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}Stock History & Audit Log | Small Shop Inventory{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-4">
+
+    <!-- Header -->
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+        <div>
+            <h4 class="fw-bold text-dark mb-1">Inventory Audit Log</h4>
+            <p class="text-muted small mb-0">Immutable tracking of every restock, sale, and quantity adjustment</p>
+        </div>
+        <div>
+            <span class="badge bg-white text-dark border p-2">
+                <i class="bi bi-shield-check text-success me-1"></i> ACID Compliant Tracking
+            </span>
+        </div>
+    </div>
+
+    <!-- History Table Card -->
+    <div class="card-modern">
+        <div class="card-header-clean">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-clock-history text-primary"></i>
+                <span>Complete Movement Ledger</span>
+            </div>
+            <span class="badge bg-secondary-subtle text-dark border">{{ history|length }} Total Events</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-modern align-middle mb-0" id="stockHistoryTable">
+                <thead>
+                    <tr>
+                        <th>Date & Time</th>
+                        <th>Product Details</th>
+                        <th>Action Type</th>
+                        <th>Qty Change</th>
+                        <th>Resulting Stock</th>
+                        <th>User</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if history %}
+                        {% for entry in history %}
+                        <tr>
+                            <td class="small text-muted font-monospace">
+                                {{ entry.recorded_at.strftime('%Y-%m-%d %H:%M:%S') if entry.recorded_at else 'Recent' }}
+                            </td>
+                            <td>
+                                <div class="fw-bold text-dark">{{ entry.product_name }}</div>
+                                <div class="text-muted small font-monospace">{{ entry.product_sku }}</div>
+                            </td>
+                            <td>
+                                {% if entry.change_type == 'SALE' %}
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle"><i class="bi bi-cart-dash me-1"></i>SALE</span>
+                                {% elif entry.change_type == 'RESTOCK' %}
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle"><i class="bi bi-box-arrow-in-down me-1"></i>RESTOCK</span>
+                                {% elif entry.change_type == 'INITIAL' %}
+                                    <span class="badge bg-info-subtle text-info border border-info-subtle"><i class="bi bi-plus-circle me-1"></i>INITIAL</span>
+                                {% else %}
+                                    <span class="badge bg-warning-subtle text-warning border border-warning-subtle"><i class="bi bi-sliders me-1"></i>ADJUSTMENT</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if entry.quantity_change > 0 %}
+                                    <span class="fw-bold text-success">+{{ entry.quantity_change }}</span>
+                                {% else %}
+                                    <span class="fw-bold text-danger">{{ entry.quantity_change }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="fw-bold text-dark">{{ entry.resulting_quantity }} units</span>
+                            </td>
+                            <td class="small text-secondary">
+                                <i class="bi bi-person me-1"></i>{{ entry.username|default('Admin') }}
+                            </td>
+                            <td class="small text-muted">
+                                {{ entry.notes|default('System logged movement') }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center py-5 text-muted">
+                                <i class="bi bi-journal-x fs-2 d-block mb-2 text-secondary"></i>
+                                No stock history movements recorded yet.
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

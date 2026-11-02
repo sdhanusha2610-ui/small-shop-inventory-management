@@ -1,0 +1,52 @@
+groups:
+  - name: inventory_system_alerts
+    rules:
+      # 1. Instance Down Alert
+      - alert: InstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Target {{ $labels.instance }} is down"
+          description: "Service {{ $labels.job }} on {{ $labels.instance }} has been unreachable for more than 1 minute."
+
+      # 2. High CPU Utilization (> 85%)
+      - alert: HighCpuUsage
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "EC2 Host CPU utilization is {{ $value | printf \"%.2f\" }}% (> 85% threshold) for the last 5 minutes."
+
+      # 3. High Memory Utilization (> 85%)
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Memory usage on {{ $labels.instance }}"
+          description: "EC2 Host Memory utilization is {{ $value | printf \"%.2f\" }}% (> 85% threshold)."
+
+      # 4. Low Disk Space (< 15% Free)
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low Disk Space on root partition"
+          description: "Root partition free space is down to {{ $value | printf \"%.2f\" }}%."
+
+      # 5. Application 5xx Error Spike
+      - alert: HighHttpErrorRate
+        expr: rate(flask_http_request_total{status=~"5.."}[5m]) / rate(flask_http_request_total[5m]) * 100 > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate detected"
+          description: "Flask application 5xx internal server errors exceed 5% of total requests."

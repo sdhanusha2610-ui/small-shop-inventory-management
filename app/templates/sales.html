@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Sales Point | Small Shop Inventory{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-4">
+
+    <!-- Header -->
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+        <div>
+            <h4 class="fw-bold text-dark mb-1">Point of Sale (POS) & Orders</h4>
+            <p class="text-muted small mb-0">Record customer purchases with instant stock deduction and automated low-stock checking</p>
+        </div>
+        <div class="d-flex gap-2">
+            <span class="badge bg-white text-dark border p-2 d-flex align-items-center gap-2">
+                <i class="bi bi-clock-history text-primary"></i>
+                <span>Today's Total: <strong class="text-success">${{ "%.2f"|format(today_total|default(0.00)) }}</strong></span>
+            </span>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- Left Column: Record Sale Form -->
+        <div class="col-12 col-lg-5">
+            <div class="card-modern">
+                <div class="card-header-clean bg-primary-subtle text-primary">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-cart-plus-fill fs-5"></i>
+                        <span class="fw-bold">Record Customer Sale</span>
+                    </div>
+                </div>
+                <div class="p-4">
+                    <form method="POST" action="{{ url_for('routes.record_sale') }}" id="recordSaleForm">
+                        <!-- 1. Select Product -->
+                        <div class="mb-3">
+                            <label for="sale_product_select" class="form-label fw-semibold small">Select Product *</label>
+                            <select class="form-select" id="sale_product_select" name="product_id" required>
+                                <option value="" selected disabled>Choose a product...</option>
+                                {% for p in available_products|default([]) %}
+                                    <option value="{{ p.id }}"
+                                            data-price="{{ p.price }}"
+                                            data-stock="{{ p.quantity }}"
+                                            {% if p.quantity <= 0 %}disabled{% endif %}>
+                                        {{ p.name }} ({{ p.sku }}) - ${{ "%.2f"|format(p.price) }} {% if p.quantity <= 0 %}[OUT OF STOCK]{% else %}[{{ p.quantity }} available]{% endif %}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <div id="sale_stock_helper" class="form-text small mt-1">Select a product to view stock</div>
+                        </div>
+
+                        <!-- 2. Quantity -->
+                        <div class="mb-3">
+                            <label for="sale_quantity_input" class="form-label fw-semibold small">Quantity to Purchase *</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="sale_quantity_input" name="quantity" min="1" value="1" required>
+                                <span class="input-group-text bg-light text-muted">units</span>
+                            </div>
+                        </div>
+
+                        <!-- 3. Dynamic Calculation Summary Box -->
+                        <div class="bg-light p-3 rounded-3 mb-4 border">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="text-secondary small">Unit Price:</span>
+                                <span id="sale_unit_price" class="fw-semibold text-dark">$0.00</span>
+                            </div>
+                            <hr class="my-2 border-secondary-subtle">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="fw-bold text-dark">Total Amount:</span>
+                                <span id="sale_total_price" class="fw-bold text-success fs-4">$0.00</span>
+                            </div>
+                        </div>
+
+                        <!-- 4. Submit Button -->
+                        <button type="submit" class="btn btn-success-custom w-100 justify-content-center py-2" id="sale_submit_btn" disabled>
+                            <i class="bi bi-check2-circle fs-5"></i> Complete Sale & Deduct Stock
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- AWS Cloud Integration Highlight -->
+            <div class="card-modern p-3 mt-3 bg-light border-0">
+                <div class="d-flex gap-2">
+                    <i class="bi bi-shield-fill-check text-primary fs-4"></i>
+                    <div>
+                        <h6 class="fw-bold mb-1 small text-dark">Automated Cloud Alert Guarantee</h6>
+                        <p class="text-muted small mb-0">
+                            Upon sale completion, the backend immediately checks if the remaining stock is at or below the minimum threshold. If triggered, an <strong>AWS SNS Email</strong> is immediately published.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Sales History Table -->
+        <div class="col-12 col-lg-7">
+            <div class="card-modern">
+                <div class="card-header-clean">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-receipt-cutoff text-primary"></i>
+                        <span>Recent Sales Ledger</span>
+                    </div>
+                    <span class="badge bg-secondary-subtle text-dark border">{{ sales|length }} Records</span>
+                </div>
+                <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                    <table class="table table-modern align-middle mb-0" id="salesHistoryTable">
+                        <thead class="sticky-top">
+                            <tr>
+                                <th>Receipt #</th>
+                                <th>Date & Time</th>
+                                <th>Product</th>
+                                <th>Qty</th>
+                                <th>Price</th>
+                                <th>Total</th>
+                                <th>Cashier</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if sales %}
+                                {% for s in sales %}
+                                <tr>
+                                    <td class="fw-bold font-monospace text-secondary">#{{ s.id }}</td>
+                                    <td class="small text-muted">{{ s.sale_date.strftime('%Y-%m-%d %H:%M') if s.sale_date else 'Recent' }}</td>
+                                    <td>
+                                        <div class="fw-semibold text-dark">{{ s.product_name }}</div>
+                                        <div class="text-muted small">{{ s.product_sku }}</div>
+                                    </td>
+                                    <td><span class="badge bg-light text-dark border">{{ s.quantity_sold }} pcs</span></td>
+                                    <td class="small">${{ "%.2f"|format(s.unit_price) }}</td>
+                                    <td class="fw-bold text-success">${{ "%.2f"|format(s.total_price) }}</td>
+                                    <td class="small text-secondary"><i class="bi bi-person me-1"></i>{{ s.cashier_name|default('Admin') }}</td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="7" class="text-center py-5 text-muted">
+                                        <i class="bi bi-cart-x fs-2 d-block mb-2 text-secondary"></i>
+                                        No sales transactions recorded yet.
+                                    </td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

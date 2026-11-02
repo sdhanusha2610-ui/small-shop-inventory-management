@@ -1,0 +1,472 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Small Shop Inventory Management System - Complete Infrastructure as Code
+  Provisions VPC, Public/Private Subnets, Security Groups, IAM SSM Instance Profile,
+  Amazon RDS MySQL (Free Tier), Amazon SNS Topic with Email Alerts, and EC2 Instance.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Application & Compute Configuration"
+        Parameters:
+          - EnvironmentName
+          - InstanceType
+          - LatestAmiId
+          - AlertEmail
+      - Label:
+          default: "Database Configuration (Amazon RDS)"
+        Parameters:
+          - DBMasterUsername
+          - DBMasterPassword
+          - DBInstanceClass
+          - DBAllocatedStorage
+      - Label:
+          default: "VPC & Network Configuration"
+        Parameters:
+          - VpcCIDR
+          - PublicSubnet1CIDR
+          - PublicSubnet2CIDR
+          - PrivateSubnet1CIDR
+          - PrivateSubnet2CIDR
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: production
+    Description: Environment tag and prefix for resources.
+
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t3.micro
+      - t3.small
+    Description: "EC2 Instance type (Free tier eligible: t2.micro or t3.micro)."
+
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id'
+    Description: Automatically resolves to the latest official Ubuntu 22.04 LTS AMI in the current region.
+
+  AlertEmail:
+    Type: String
+    Default: shopowner@example.com
+    Description: Email address to receive immediate AWS SNS low-stock alert notifications.
+
+  DBMasterUsername:
+    Type: String
+    Default: admin
+    Description: Master username for Amazon RDS MySQL database.
+
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 41
+    Default: "ShopAdminPass123!"
+    Description: Master password for Amazon RDS MySQL (min 8 chars).
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t4g.micro
+    Description: RDS Instance class (Free tier eligible).
+
+  DBAllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+    MaxValue: 100
+    Description: "Database allocated storage size in GB (Free tier: 20 GB)."
+
+  VpcCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: Primary CIDR block for the custom VPC.
+
+  PublicSubnet1CIDR:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for Public Subnet 1 (AZ A).
+
+  PublicSubnet2CIDR:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR block for Public Subnet 2 (AZ B).
+
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: 10.0.11.0/24
+    Description: CIDR block for Private Subnet 1 (AZ A - RDS MySQL).
+
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: 10.0.12.0/24
+    Description: CIDR block for Private Subnet 2 (AZ B - RDS MySQL).
+
+Resources:
+  # ============================================================================
+  # 1. NETWORK TIER: VPC, Internet Gateway, Subnets, Routing
+  # ============================================================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-inventory-vpc"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-inventory-igw"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnets (For EC2 Web Server)
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-subnet-1"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref PublicSubnet2CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-subnet-2"
+
+  # Private Subnets (For RDS MySQL - requires at least 2 AZs for DBSubnetGroup)
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-private-subnet-1"
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-private-subnet-2"
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-public-rt"
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # ============================================================================
+  # 2. SECURITY GROUPS: Zero-SSH Security Model
+  # ============================================================================
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for Inventory Web Server (Port 80 HTTP, No Port 22 SSH)"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: "Public Web Traffic"
+        - IpProtocol: tcp
+          FromPort: 9100
+          ToPort: 9100
+          CidrIp: 0.0.0.0/0
+          Description: "Prometheus Node Exporter Metrics"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: "Allow all outbound traffic"
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-web-sg"
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for Amazon RDS MySQL (Restricted to Web Server)"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref WebServerSecurityGroup
+          Description: "Allow MySQL traffic strictly from WebServerSecurityGroup"
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-db-sg"
+
+  # ============================================================================
+  # 3. NOTIFICATION TIER: Amazon SNS Topic & Email Subscription
+  # ============================================================================
+  LowStockSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${EnvironmentName}-low-stock-topic"
+      DisplayName: "ShopAlerts"
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  LowStockSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref LowStockSNSTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  # ============================================================================
+  # 4. IAM & SYSTEMS MANAGER: Zero-SSH Server Administration
+  # ============================================================================
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-ec2-ssm-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: InventorySNSPublishPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref LowStockSNSTopic
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2InstanceRole
+
+  # ============================================================================
+  # 5. DATABASE TIER: Amazon RDS MySQL 8.0 Free Tier
+  # ============================================================================
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Subnet group for Inventory RDS MySQL Instance"
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-db-subnet-group"
+
+  RDSMySQLInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${EnvironmentName}-inventory-mysql"
+      Engine: mysql
+      EngineVersion: "8.0.35"
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp2
+      MasterUsername: !Ref DBMasterUsername
+      MasterUserPassword: !Ref DBMasterPassword
+      DBName: inventory_db
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
+      PubliclyAccessible: false
+      MultiAZ: false
+      AutoMinorVersionUpgrade: true
+      DeleteAutomatedBackups: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-inventory-mysql"
+
+  # ============================================================================
+  # 6. COMPUTE TIER: Amazon EC2 Web Instance
+  # ============================================================================
+  WebServerInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: RDSMySQLInstance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref WebServerSecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-inventory-web-server"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+          exec > >(tee -a /var/log/inventory_setup.log) 2>&1
+          echo "Starting automated EC2 Bootstrap via CloudFormation UserData..."
+
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -y
+          apt-get install -y python3 python3-pip python3-venv nginx git mysql-client curl jq wget tar
+
+          # Install Prometheus Node Exporter
+          NODE_EXPORTER_VERSION="1.8.2"
+          wget -q https://github.com/prometheus/node_exporter/releases/download/v$${NODE_EXPORTER_VERSION}/node_exporter-$${NODE_EXPORTER_VERSION}.linux-amd64.tar.gz -O /tmp/node_exporter.tar.gz
+          tar -xzf /tmp/node_exporter.tar.gz -C /tmp/
+          cp /tmp/node_exporter-$${NODE_EXPORTER_VERSION}.linux-amd64/node_exporter /usr/local/bin/
+          useradd -rs /bin/false node_exporter || true
+          cat <<EOF > /etc/systemd/system/node_exporter.service
+          [Unit]
+          Description=Prometheus Node Exporter
+          After=network.target
+
+          [Service]
+          User=node_exporter
+          Group=node_exporter
+          Type=simple
+          ExecStart=/usr/local/bin/node_exporter
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          systemctl daemon-reload
+          systemctl enable node_exporter
+          systemctl start node_exporter
+
+          # Setup Application Directories
+          APP_DIR="/opt/inventory-system"
+          mkdir -p "$APP_DIR"
+          mkdir -p /var/log/inventory
+          chown -R ubuntu:www-data /var/log/inventory
+
+          # Create production .env file dynamically populated with RDS and SNS outputs
+          cat <<EOF > "$APP_DIR/.env"
+          FLASK_ENV=production
+          SECRET_KEY=$(openssl rand -hex 24)
+          PORT=5000
+          DB_USER=${DBMasterUsername}
+          DB_PASSWORD=${DBMasterPassword}
+          DB_HOST=${RDSMySQLInstance.Endpoint.Address}
+          DB_PORT=${RDSMySQLInstance.Endpoint.Port}
+          DB_NAME=inventory_db
+          AWS_REGION=${AWS::Region}
+          SNS_TOPIC_ARN=${LowStockSNSTopic}
+          ENABLE_SNS_ALERTS=true
+          EOF
+
+          # Configure Nginx
+          cat <<'EOF' > /etc/nginx/sites-available/inventory
+          server {
+              listen 80 default_server;
+              listen [::]:80 default_server;
+              server_name _;
+              client_max_body_size 16M;
+
+              location /static/ {
+                  alias /opt/inventory-system/app/static/;
+                  expires 30d;
+              }
+
+              location / {
+                  proxy_pass http://127.0.0.1:5000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+              }
+
+              location /node-metrics {
+                  proxy_pass http://127.0.0.1:9100/metrics;
+              }
+          }
+          EOF
+          rm -f /etc/nginx/sites-enabled/default
+          ln -sf /etc/nginx/sites-available/inventory /etc/nginx/sites-enabled/
+          systemctl restart nginx
+
+          echo "UserData bootstrap complete. Awaiting GitHub Actions CI/CD code deployment."
+
+Outputs:
+  WebURL:
+    Description: "Public Web Application URL"
+    Value: !Sub "http://${WebServerInstance.PublicIp}"
+
+  EC2PublicIP:
+    Description: "Public IP of EC2 Instance"
+    Value: !GetAtt WebServerInstance.PublicIp
+
+  EC2InstanceId:
+    Description: "EC2 Instance ID for AWS Systems Manager (SSM) Session Manager"
+    Value: !Ref WebServerInstance
+
+  SSMConnectCommand:
+    Description: "AWS CLI command to connect to EC2 via SSM without SSH"
+    Value: !Sub "aws ssm start-session --target ${WebServerInstance}"
+
+  RDSEndpoint:
+    Description: "Amazon RDS MySQL Endpoint Address"
+    Value: !GetAtt RDSMySQLInstance.Endpoint.Address
+
+  SNSTopicArn:
+    Description: "Amazon SNS Topic ARN for Low-Stock Notifications"
+    Value: !Ref LowStockSNSTopic
