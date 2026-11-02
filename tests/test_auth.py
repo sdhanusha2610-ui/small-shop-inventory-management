@@ -3,7 +3,7 @@ def test_login_page_renders(client, db_session):
     response = client.get('/login')
     assert response.status_code == 200
     assert b"Sign In" in response.data
-    assert b"Demo Credentials" in response.data
+    assert b"Sign In to Dashboard" in response.data
 
 
 def test_login_success(client, db_session):
