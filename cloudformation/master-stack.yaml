@@ -41,9 +41,7 @@ Parameters:
     Default: t2.micro
     AllowedValues:
       - t2.micro
-      - t3.micro
-      - t3.small
-    Description: "EC2 Instance type (Free tier eligible: t2.micro or t3.micro)."
+    Description: "EC2 Instance type"
 
   LatestAmiId:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
@@ -324,7 +322,6 @@ Resources:
     Properties:
       DBInstanceIdentifier: !Sub "${EnvironmentName}-inventory-mysql"
       Engine: mysql
-      EngineVersion: "8.0.35"
       DBInstanceClass: !Ref DBInstanceClass
       AllocatedStorage: !Ref DBAllocatedStorage
       StorageType: gp2
@@ -371,9 +368,9 @@ Resources:
 
           # Install Prometheus Node Exporter
           NODE_EXPORTER_VERSION="1.8.2"
-          wget -q https://github.com/prometheus/node_exporter/releases/download/v$${NODE_EXPORTER_VERSION}/node_exporter-$${NODE_EXPORTER_VERSION}.linux-amd64.tar.gz -O /tmp/node_exporter.tar.gz
+          wget -q https://github.com/prometheus/node_exporter/releases/download/v${!NODE_EXPORTER_VERSION}/node_exporter-${!NODE_EXPORTER_VERSION}.linux-amd64.tar.gz -O /tmp/node_exporter.tar.gz
           tar -xzf /tmp/node_exporter.tar.gz -C /tmp/
-          cp /tmp/node_exporter-$${NODE_EXPORTER_VERSION}.linux-amd64/node_exporter /usr/local/bin/
+          cp /tmp/node_exporter-${!NODE_EXPORTER_VERSION}.linux-amd64/node_exporter /usr/local/bin/
           useradd -rs /bin/false node_exporter || true
           cat <<EOF > /etc/systemd/system/node_exporter.service
           [Unit]
